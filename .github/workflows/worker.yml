@@ -53,7 +53,7 @@ jobs:
         tag_name: "${{ env.VERSION }}" # 新 Release 的标签
         name: "${{ env.VERSION }} (mipsel)"
         body: | 
-          自动处理后的 mipsel 架构二进制文件，原版本：${{ env:VERSION }}
+          自动处理后的 mipsel 架构二进制文件，原版本：${{ env.VERSION }}
           包含以下文件：
           $(ls artifacts/easytier-bin | sed 's/^/- /')
         files: |
