@@ -9,33 +9,25 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       need_process: ${{ steps.check_version.outputs.need_process }}
+      latest_ver: ${{ env.LATEST_VER }}
     steps:
-    - name: 获取已处理版本缓存
-      id: cache_ver
-      uses: actions/cache@v3
+    - uses: actions/cache@v3
       with:
         path: last_processed_version
         key: last-processed-version
 
     - name: 获取最新版本号
-      id: get_latest_ver
       run: |
         LATEST_VER=$(curl -s https://api.github.com/repos/EasyTier/EasyTier/releases/latest | jq -r '.tag_name')
-        echo "最新版本号: $LATEST_VER"
         echo "LATEST_VER=$LATEST_VER" >> $GITHUB_ENV
 
     - name: 版本比对
       id: check_version
       run: |
-        # 读取缓存版本（如有）
         [ -f last_processed_version ] && CACHED_VER=$(cat last_processed_version) || CACHED_VER="null"
-        
         if [[ "${{ env.LATEST_VER }}" != "$CACHED_VER" ]]; then
-          echo "检测到新版本，触发处理流程"
           echo "need_process=true" >> $GITHUB_OUTPUT
-          echo "${{ env.LATEST_VER }}" > last_processed_version
         else
-          echo "无新版本，跳过处理"
           echo "need_process=false" >> $GITHUB_OUTPUT
         fi
 
@@ -43,18 +35,29 @@ jobs:
     needs: check-release
     if: needs.check-release.outputs.need_process == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
+    - name: 下载程序包
+      run: |
+        DOWNLOAD_URL="https://github.com/EasyTier/EasyTier/releases/download/${{ needs.check-release.outputs.latest_ver }}/easytier-linux-mipsel-${{ needs.check-release.outputs.latest_ver }}.zip"
+        wget $DOWNLOAD_URL -O package.zip || exit 1
 
-    - name: 创建新 Release
-      uses: softprops/action-gh-release@v1
+    - name: 解压文件
+      run: |
+        unzip package.zip -d extracted/
+        mkdir -p artifacts/easytier-bin
+        cp extracted/easytier-linux-mipsel/* artifacts/easytier-bin/
+
+    - name: 发布 Release
+      uses: softprops/action-gh-release@v2
       env:
-        GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
-        tag_name: "${{ env.VERSION }}" # 新 Release 的标签
-        name: "${{ env.VERSION }} (mipsel)"
-        body: | 
-          自动处理后的 mipsel 架构二进制文件，原版本：${{ env.VERSION }}
-          包含以下文件：
-          $(ls artifacts/easytier-bin | sed 's/^/- /')
-        files: |
-          artifacts/easytier-bin/*
+        tag_name: "${{ needs.check-release.outputs.latest_ver }}"
+        files: artifacts/easytier-bin/*
+
+    - name: 更新缓存
+      if: success()  # 关键：只有前面步骤都成功才执行
+      run: |
+        echo "${{ needs.check-release.outputs.latest_ver }}" > last_processed_version
