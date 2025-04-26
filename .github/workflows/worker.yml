@@ -1,0 +1,60 @@
+name: Process EasyTier Release
+on:
+  workflow_dispatch: # 支持手动触发
+  schedule:
+    - cron: '0 0 1 * *' # 每月 1 号 UTC 时间 0 点自动执行
+
+jobs:
+  check-release:
+    runs-on: ubuntu-latest
+    outputs:
+      need_process: ${{ steps.check_version.outputs.need_process }}
+    steps:
+    - name: 获取已处理版本缓存
+      id: cache_ver
+      uses: actions/cache@v3
+      with:
+        path: last_processed_version
+        key: last-processed-version
+
+    - name: 获取最新版本号
+      id: get_latest_ver
+      run: |
+        LATEST_VER=$(curl -s https://api.github.com/repos/EasyTier/EasyTier/releases/latest | jq -r '.tag_name')
+        echo "最新版本号: $LATEST_VER"
+        echo "LATEST_VER=$LATEST_VER" >> $GITHUB_ENV
+
+    - name: 版本比对
+      id: check_version
+      run: |
+        # 读取缓存版本（如有）
+        [ -f last_processed_version ] && CACHED_VER=$(cat last_processed_version) || CACHED_VER="null"
+        
+        if [[ "${{ env.LATEST_VER }}" != "$CACHED_VER" ]]; then
+          echo "检测到新版本，触发处理流程"
+          echo "need_process=true" >> $GITHUB_OUTPUT
+          echo "${{ env.LATEST_VER }}" > last_processed_version
+        else
+          echo "无新版本，跳过处理"
+          echo "need_process=false" >> $GITHUB_OUTPUT
+        fi
+
+  process-release:
+    needs: check-release
+    if: needs.check-release.outputs.need_process == 'true'
+    runs-on: ubuntu-latest
+    steps:
+
+    - name: 创建新 Release
+      uses: softprops/action-gh-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: "${{ env:VERSION }}" # 新 Release 的标签
+        name: "${{ env:VERSION }} (mipsel)"
+        body: | 
+          自动处理后的 mipsel 架构二进制文件，原版本：${{ env:VERSION }}
+          包含以下文件：
+          $(ls artifacts/easytier-bin | sed 's/^/- /')
+        files: |
+          artifacts/easytier-bin/*
