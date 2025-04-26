@@ -48,7 +48,7 @@ jobs:
     - name: 创建新 Release
       uses: softprops/action-gh-release@v1
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        GITHUB_TOKEN: ${{ secrets.REPO_TOKEN }}
       with:
         tag_name: "${{ env:VERSION }}" # 新 Release 的标签
         name: "${{ env:VERSION }} (mipsel)"
