@@ -2,7 +2,7 @@ name: Process EasyTier Release
 on:
   workflow_dispatch: # 支持手动触发
   schedule:
-    - cron: '0 0 1 * *' # 每月 1 号 UTC 时间 0 点自动执行
+    - cron: '0 0 * * *' # 每月 1 号 UTC 时间 0 点自动执行
 
 jobs:
   check-release:
