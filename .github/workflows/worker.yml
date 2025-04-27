@@ -1,8 +1,8 @@
 name: Process EasyTier Release
 on:
-  workflow_dispatch: # 支持手动触发
+  workflow_dispatch:
   schedule:
-    - cron: '0 0 * * *' # 每月 1 号 UTC 时间 0 点自动执行
+    - cron: '0 0 * * *'
 
 jobs:
   check-release:
@@ -11,25 +11,30 @@ jobs:
       need_process: ${{ steps.check_version.outputs.need_process }}
       latest_ver: ${{ env.LATEST_VER }}
     steps:
-    - uses: actions/cache@v3
-      with:
-        path: last-processed-version
-        key: last-processed-version
+      # 1. 直接读取缓存（不依赖哈希）
+      - name: Restore cached version
+        id: restore-cache
+        uses: actions/cache@v3
+        with:
+          path: last_processed_version
+          key: easytier-version-cache  # 固定Key，直接覆盖式缓存
 
-    - name: 获取最新版本号
-      run: |
-        LATEST_VER=$(curl -s https://api.github.com/repos/EasyTier/EasyTier/releases/latest | jq -r '.tag_name')
-        echo "LATEST_VER=$LATEST_VER" >> $GITHUB_ENV
+      # 2. 获取最新版本号
+      - name: Fetch latest version
+        run: |
+          LATEST_VER=$(curl -s https://api.github.com/repos/EasyTier/EasyTier/releases/latest | jq -r '.tag_name')
+          echo "LATEST_VER=$LATEST_VER" >> $GITHUB_ENV
 
-    - name: 版本比对
-      id: check_version
-      run: |
-        [ -f last_processed_version ] && CACHED_VER=$(cat last_processed_version) || CACHED_VER="null"
-        if [[ "${{ env.LATEST_VER }}" != "$CACHED_VER" ]]; then
-          echo "need_process=true" >> $GITHUB_OUTPUT
-        else
-          echo "need_process=false" >> $GITHUB_OUTPUT
-        fi
+      # 3. 检查是否需要处理
+      - name: Check version
+        id: check_version
+        run: |
+          [ -f last_processed_version ] && CACHED_VER=$(cat last_processed_version) || CACHED_VER="null"
+          if [[ "${{ env.LATEST_VER }}" != "$CACHED_VER" ]]; then
+            echo "need_process=true" >> $GITHUB_OUTPUT
+          else
+            echo "need_process=false" >> $GITHUB_OUTPUT
+          fi
 
   process-release:
     needs: check-release
@@ -38,26 +43,24 @@ jobs:
     permissions:
       contents: write
     steps:
-    - name: 下载程序包
-      run: |
-        DOWNLOAD_URL="https://github.com/EasyTier/EasyTier/releases/download/${{ needs.check-release.outputs.latest_ver }}/easytier-linux-mipsel-${{ needs.check-release.outputs.latest_ver }}.zip"
-        wget $DOWNLOAD_URL -O package.zip || exit 1
+      # 4. 处理新版本
+      - name: Download and extract
+        run: |
+          wget "https://github.com/EasyTier/EasyTier/releases/download/${{ needs.check-release.outputs.latest_ver }}/easytier-linux-mipsel-${{ needs.check-release.outputs.latest_ver }}.zip" -O package.zip
+          unzip package.zip -d extracted/
+          mkdir -p artifacts/easytier-bin
+          cp extracted/easytier-linux-mipsel/* artifacts/easytier-bin/
 
-    - name: 解压文件
-      run: |
-        unzip package.zip -d extracted/
-        mkdir -p artifacts/easytier-bin
-        cp extracted/easytier-linux-mipsel/* artifacts/easytier-bin/
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: "${{ needs.check-release.outputs.latest_ver }}"
+          files: artifacts/easytier-bin/*
 
-    - name: 发布 Release
-      uses: softprops/action-gh-release@v2
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      with:
-        tag_name: "${{ needs.check-release.outputs.latest_ver }}"
-        files: artifacts/easytier-bin/*
-
-    - name: 更新缓存
-      if: success()  # 关键：只有前面步骤都成功才执行
-      run: |
-        echo "${{ needs.check-release.outputs.latest_ver }}" > last_processed_version
+      # 5. 成功后强制更新缓存（覆盖旧值）
+      - name: Update cache
+        if: success()
+        run: echo "${{ needs.check-release.outputs.latest_ver }}" > last_processed_version
+        # 注意：此处不再需要显式调用 actions/cache，因为文件变化会自动触发缓存更新
