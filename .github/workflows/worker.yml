@@ -43,6 +43,12 @@ jobs:
     permissions:
       contents: write
     steps:
+      - name: Load cache
+        uses: actions/cache@v3
+        with:
+          path: last_processed_version
+          key: easytier-version-cache  # 与恢复时相同的Key
+
       # 4. 处理新版本
       - name: Download and extract
         run: |
